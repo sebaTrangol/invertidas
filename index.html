@@ -188,10 +188,11 @@ ol.serie .record{color:var(--ambar)}
   "use strict";
 
   var ENTRAR = -0.55;      // coseno vs. vertical de pie: bajo esto se considera invertido
-  var SALIR  = -0.20;      // histéresis de salida
+  var SALIR  = -0.05;      // histéresis de salida (holgado para tolerar sacudidas de cadera al abrir piernas)
   var CONFIRMA_ENTRADA = 700;  // ms sostenidos para confirmar
-  var CONFIRMA_SALIDA  = 300;
+  var CONFIRMA_SALIDA  = 600;
   var MIN_HOLD = 1500;     // ms mínimos para contar un intento
+  var CUENTA_REGRESIVA = 5;    // segundos de margen para acomodar el teléfono antes de calibrar
 
   var estadoEl=document.getElementById("estado");
   var relojEl=document.getElementById("reloj");
@@ -212,7 +213,7 @@ ol.serie .record{color:var(--ambar)}
   var candidatoEntrada=0, candidatoSalida=0;
   var inicioHold=0, metaAvisada=false;
   var holds=[], meta=30, voz=true, manual=false, sensorVivo=false, ultimoDato=0;
-  var wakeLock=null, audioCtx=null;
+  var wakeLock=null, audioCtx=null, cuentaTimer=null;
 
   /* ---------- almacenamiento ---------- */
   var CLAVE="invertidas:"+new Date().toISOString().slice(0,10);
@@ -298,7 +299,7 @@ ol.serie .record{color:var(--ambar)}
     setTimeout(function(){
       if(!sensorVivo) mostrarAviso("El sensor no está entregando datos. Prueba en el otro teléfono o usa el modo manual.");
     },1500);
-    empezarCalibracion();
+    iniciarCuentaRegresiva();
   }
   function onMotion(ev){
     var a=ev.accelerationIncludingGravity;
@@ -319,6 +320,31 @@ ol.serie .record{color:var(--ambar)}
     var n1=norma(gFiltrada), n2=norma(refArriba);
     if(n1<0.5||n2<0.5) return 1;
     return (gFiltrada.x*refArriba.x+gFiltrada.y*refArriba.y+gFiltrada.z*refArriba.z)/(n1*n2);
+  }
+
+  /* ---------- cuenta regresiva pre-calibración ---------- */
+  function cancelarCuentaRegresiva(){
+    if(cuentaTimer){ clearInterval(cuentaTimer); cuentaTimer=null; }
+  }
+  function iniciarCuentaRegresiva(){
+    cancelarCuentaRegresiva();
+    fase="previo";
+    var restante=CUENTA_REGRESIVA;
+    estadoEl.textContent="Prepárate";
+    subEl.textContent="Acomoda el teléfono y quédate quieto";
+    btn.textContent="Preparando…";
+    relojEl.textContent=String(restante);
+    hablar(String(restante));
+    cuentaTimer=setInterval(function(){
+      restante--;
+      if(restante<=0){
+        cancelarCuentaRegresiva();
+        empezarCalibracion();
+        return;
+      }
+      relojEl.textContent=String(restante);
+      hablar(String(restante));
+    },1000);
   }
 
   /* ---------- calibración ---------- */
@@ -446,7 +472,7 @@ ol.serie .record{color:var(--ambar)}
     ctx();
     if(fase==="inicio") activarSensor();
     else if(manual){ if(fase==="invertido") salir(performance.now()); else entrar(performance.now()); }
-    else empezarCalibracion();
+    else iniciarCuentaRegresiva();
   });
   btnVoz.addEventListener("click",function(){
     voz=!voz; btnVoz.setAttribute("aria-pressed",voz?"true":"false");
@@ -457,7 +483,7 @@ ol.serie .record{color:var(--ambar)}
     manual=!manual; btnManual.setAttribute("aria-pressed",manual?"true":"false");
     btnManual.textContent=manual?"Modo manual activo":"Modo manual";
     if(manual){
-      if(fase==="inicio"||fase==="calibrar") fase="listo";
+      if(fase==="inicio"||fase==="calibrar"||fase==="previo"){ cancelarCuentaRegresiva(); fase="listo"; }
       estadoEl.textContent="Manual";
       subEl.textContent="Toca el botón grande para partir y parar";
       btn.textContent="Partir / parar";
