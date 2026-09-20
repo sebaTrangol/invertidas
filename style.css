@@ -107,7 +107,6 @@ ol.serie li:last-child{border-bottom:0}
 ol.serie .n{color:var(--tinta-suave);font-size:.85rem}
 ol.serie .t{font-family:"Archivo Black","Archivo",sans-serif;font-size:1.05rem}
 ol.serie .record{color:var(--ambar)}
-ol.serie .intento{opacity:0.65;color:var(--tinta-suave)}
 .vacio{color:var(--tinta-suave);font-size:.9rem;margin:0}
 body.historico{background:var(--piso-2)}
 

@@ -401,18 +401,17 @@
     document.getElementById("dTotal").textContent=fmtTotal(suma);
   }
   function pintarSerie(){
-    serieEl.innerHTML="";
-    if(!holds.length){ vacioEl.classList.remove("oculto"); return; }
-    vacioEl.classList.add("oculto");
     var validos=holds.filter(function(h){return !h.esIntento;});
-    var mejor=validos.length?Math.max.apply(null,validos.map(function(h){return h.seg;})):0;
-    for(var i=holds.length-1;i>=0;i--){
+    serieEl.innerHTML="";
+    if(!validos.length){ vacioEl.classList.remove("oculto"); return; }
+    vacioEl.classList.add("oculto");
+    var mejor=Math.max.apply(null,validos.map(function(h){return h.seg;}));
+    for(var i=validos.length-1;i>=0;i--){
       var li=document.createElement("li");
       var n=document.createElement("span"); n.className="n"; n.textContent="#"+(i+1);
-      var esInt=holds[i].esIntento;
       var t=document.createElement("span");
-      t.className="t"+(esInt?" intento":(holds[i].seg===mejor?" record":""));
-      t.textContent=holds[i].seg.toFixed(1)+" s"+(esInt?" (intento)":"");
+      t.className="t"+(validos[i].seg===mejor?" record":"");
+      t.textContent=validos[i].seg.toFixed(1)+" s";
       li.appendChild(n); li.appendChild(t); serieEl.appendChild(li);
     }
   }
