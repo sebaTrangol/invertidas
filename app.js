@@ -516,7 +516,10 @@
     var email=inputEmail.value.trim();
     if(!email) return;
     btnEnviarLink.disabled=true; btnEnviarLink.textContent="Enviando…";
-    supa.auth.signInWithOtp({email:email}).then(function(res){
+    supa.auth.signInWithOtp({
+      email:email,
+      options:{ emailRedirectTo: window.location.origin+window.location.pathname }
+    }).then(function(res){
       btnEnviarLink.disabled=false; btnEnviarLink.textContent="Enviar enlace";
       if(res.error) mostrarAviso("No se pudo enviar el enlace: "+res.error.message);
       else mostrarAviso("Revisa tu correo y toca el enlace para entrar.");
