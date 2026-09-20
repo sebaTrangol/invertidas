@@ -27,8 +27,6 @@
   var btnDiaAnt=document.getElementById("btnDiaAnt");
   var btnDiaSig=document.getElementById("btnDiaSig");
   var fechaMuestra=document.getElementById("fechaMuestra");
-  var btnCalendario=document.getElementById("btnCalendario");
-  var inputFecha=document.getElementById("inputFecha");
   var inputEmail=document.getElementById("inputEmail");
   var btnEnviarLink=document.getElementById("btnEnviarLink");
   var btnCerrarSesion=document.getElementById("btnCerrarSesion");
@@ -139,8 +137,9 @@
     return supa.from("holds").insert({
       id:hold.id, user_id:sesion.user.id, fecha:fecha, seg:hold.seg, es_intento:hold.esIntento
     }).then(function(res){
-      if(!res.error) hold.sincronizado=true;
-    }).catch(function(){});
+      if(!res.error){ hold.sincronizado=true; return null; }
+      return res.error;
+    }).catch(function(e){ return e; });
   }
   function traerRemoto(){
     return supa.from("holds").select("*").eq("user_id",sesion.user.id).then(function(res){
@@ -170,8 +169,10 @@
         if(!h.sincronizado) subidas.push(intentarSubir(fecha,h));
       });
     });
-    Promise.all(subidas).then(function(){
+    Promise.all(subidas).then(function(errores){
       guardarHistorial();
+      var fallos=errores.filter(Boolean);
+      if(fallos.length) mostrarAviso("No se pudieron subir "+fallos.length+" hold"+(fallos.length>1?"s":"")+": "+(fallos[0].message||fallos[0]));
       return traerRemoto();
     }).then(function(){
       holds=cargarDia(diaActual);
@@ -502,16 +503,6 @@
   });
   btnDiaAnt.addEventListener("click",function(){ avanzarDia(-1); });
   btnDiaSig.addEventListener("click",function(){ avanzarDia(1); });
-  btnCalendario.addEventListener("click",function(){
-    inputFecha.max=fechaISO();
-    inputFecha.min=fechaMinima();
-    inputFecha.value=diaActual;
-    if(inputFecha.showPicker){ try{ inputFecha.showPicker(); }catch(e){ inputFecha.focus(); } }
-    else inputFecha.focus();
-  });
-  inputFecha.addEventListener("change",function(){
-    if(inputFecha.value) irADia(inputFecha.value);
-  });
   btnEnviarLink.addEventListener("click",function(){
     var email=inputEmail.value.trim();
     if(!email) return;
@@ -526,6 +517,7 @@
     });
   });
   btnCerrarSesion.addEventListener("click",function(){ supa.auth.signOut(); });
+  estadoSync.addEventListener("click",function(){ if(sesion) sincronizarTodo(); });
   supa.auth.onAuthStateChange(function(event,session){
     sesion = session ? {user:session.user, email:session.user.email} : null;
     actualizarUiCuenta();

@@ -53,6 +53,7 @@ body.invertido .sub,body.invertido .dato span{color:rgba(255,255,255,.8)}
 .encabezado{display:flex;align-items:baseline;justify-content:space-between;gap:12px}
 h1{font-family:"Archivo Black","Archivo",sans-serif;font-size:1.35rem;letter-spacing:-.02em;margin:0}
 .estado{font-size:.95rem;color:var(--tinta-suave)}
+#selectorFecha{display:flex;align-items:center;justify-content:flex-end;flex-wrap:wrap;gap:6px}
 body.invertido .estado{color:rgba(255,255,255,.85)}
 
 .escenario{
