@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Invertidas Lab — Logger</title>
+<style>
+  body{margin:0;background:#121A16;color:#EDEAE0;font-family:-apple-system,"Helvetica Neue",Arial,sans-serif;padding:20px;line-height:1.5}
+  h1{font-size:1.3rem;margin:0 0 4px}
+  p.sub{color:#98A69D;margin:0 0 20px;font-size:.9rem}
+  button{font-size:1.05rem;padding:16px;width:100%;border-radius:12px;border:2px solid #EDEAE0;background:transparent;color:#EDEAE0;margin-bottom:10px}
+  button:disabled{opacity:.35}
+  button.grabando{background:#5FBF8C;border-color:#5FBF8C;color:#121A16;font-weight:bold}
+  .datos{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:16px 0}
+  .dato{border:1px solid #2C3A32;border-radius:12px;padding:12px;text-align:center}
+  .dato b{display:block;font-size:1.4rem;font-variant-numeric:tabular-nums}
+  .dato span{color:#98A69D;font-size:.75rem}
+  #estado{font-size:.9rem;color:#98A69D;min-height:1.4em}
+</style>
+</head>
+<body>
+  <h1>Invertidas Lab — Logger</h1>
+  <p class="sub">Graba todos los datos crudos del sensor con timestamp, para comparar después contra el video.</p>
+
+  <button id="btnPermiso">1. Pedir permiso de movimiento</button>
+  <button id="btnGrabar" disabled>2. Iniciar grabación</button>
+  <button id="btnDescargar" disabled>3. Descargar CSV</button>
+
+  <div class="datos">
+    <div class="dato"><b id="dMuestras">0</b><span>muestras</span></div>
+    <div class="dato"><b id="dTiempo">0.0</b><span>segundos</span></div>
+    <div class="dato"><b id="dMag">0.00</b><span>|accel|</span></div>
+    <div class="dato"><b id="dHz">0</b><span>Hz aprox.</span></div>
+  </div>
+
+  <p id="estado">Toca "Pedir permiso" primero.</p>
+
+<script>
+(function(){
+  "use strict";
+  var btnPermiso=document.getElementById("btnPermiso");
+  var btnGrabar=document.getElementById("btnGrabar");
+  var btnDescargar=document.getElementById("btnDescargar");
+  var estadoEl=document.getElementById("estado");
+  var dMuestras=document.getElementById("dMuestras");
+  var dTiempo=document.getElementById("dTiempo");
+  var dMag=document.getElementById("dMag");
+  var dHz=document.getElementById("dHz");
+
+  var grabando=false;
+  var t0=0;
+  var muestras=[]; // {t_ms, wall_ms, ax, ay, az, mag, gx, gy, gz}
+  var permisoOk=false;
+
+  function onMotion(ev){
+    if(!grabando) return;
+    var a=ev.accelerationIncludingGravity;
+    if(!a||a.x===null||typeof a.x!=="number") return;
+    var r=ev.rotationRate||{};
+    var mag=Math.sqrt(a.x*a.x+a.y*a.y+a.z*a.z);
+    var t=performance.now()-t0;
+    muestras.push({
+      t_ms:t, wall_ms:Date.now(),
+      ax:a.x, ay:a.y, az:a.z, mag:mag,
+      gx:(r.alpha||0), gy:(r.beta||0), gz:(r.gamma||0)
+    });
+    dMuestras.textContent=muestras.length;
+    dTiempo.textContent=(t/1000).toFixed(1);
+    dMag.textContent=mag.toFixed(2);
+    if(muestras.length>5){
+      var dtProm=t/muestras.length;
+      dHz.textContent=dtProm>0?Math.round(1000/dtProm):0;
+    }
+  }
+
+  btnPermiso.addEventListener("click",function(){
+    if(!window.DeviceMotionEvent){
+      estadoEl.textContent="Este navegador no entrega datos de movimiento.";
+      return;
+    }
+    if(typeof DeviceMotionEvent.requestPermission==="function"){
+      DeviceMotionEvent.requestPermission().then(function(res){
+        if(res==="granted"){
+          permisoOk=true;
+          window.addEventListener("devicemotion",onMotion,false);
+          estadoEl.textContent="Permiso concedido. Listo para grabar.";
+          btnGrabar.disabled=false;
+        } else {
+          estadoEl.textContent="Permiso denegado. Vuelve a tocar el botón y acepta.";
+        }
+      }).catch(function(){
+        estadoEl.textContent="iOS bloqueó el permiso aquí. Abre esta página en una pestaña normal de Safari.";
+      });
+    } else {
+      permisoOk=true;
+      window.addEventListener("devicemotion",onMotion,false);
+      estadoEl.textContent="Listo para grabar (este navegador no pide permiso explícito).";
+      btnGrabar.disabled=false;
+    }
+  });
+
+  btnGrabar.addEventListener("click",function(){
+    if(!permisoOk) return;
+    if(!grabando){
+      muestras=[];
+      t0=performance.now();
+      grabando=true;
+      btnGrabar.textContent="Detener grabación";
+      btnGrabar.classList.add("grabando");
+      btnDescargar.disabled=true;
+      estadoEl.textContent="Grabando… haz el golpe de sincronización ahora.";
+    } else {
+      grabando=false;
+      btnGrabar.textContent="2. Iniciar grabación";
+      btnGrabar.classList.remove("grabando");
+      estadoEl.textContent=muestras.length+" muestras listas para descargar.";
+      btnDescargar.disabled=muestras.length===0;
+    }
+  });
+
+  btnDescargar.addEventListener("click",function(){
+    if(!muestras.length) return;
+    var filas=["t_ms,wall_ms,ax,ay,az,accel_mag,gx,gy,gz"];
+    muestras.forEach(function(m){
+      filas.push([
+        m.t_ms.toFixed(2), m.wall_ms, m.ax.toFixed(4), m.ay.toFixed(4), m.az.toFixed(4),
+        m.mag.toFixed(4), m.gx.toFixed(4), m.gy.toFixed(4), m.gz.toFixed(4)
+      ].join(","));
+    });
+    var blob=new Blob([filas.join("\n")],{type:"text/csv"});
+    var url=URL.createObjectURL(blob);
+    var a=document.createElement("a");
+    var fecha=new Date().toISOString().replace(/[:.]/g,"-");
+    a.href=url; a.download="invertidas-log-"+fecha+".csv";
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    setTimeout(function(){ URL.revokeObjectURL(url); },1000);
+  });
+})();
+</script>
+</body>
+</html>
