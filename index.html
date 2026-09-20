@@ -115,7 +115,9 @@ ol.serie li:last-child{border-bottom:0}
 ol.serie .n{color:var(--tinta-suave);font-size:.85rem}
 ol.serie .t{font-family:"Archivo Black","Archivo",sans-serif;font-size:1.05rem}
 ol.serie .record{color:var(--ambar)}
+ol.serie .intento{opacity:0.65;color:var(--tinta-suave)}
 .vacio{color:var(--tinta-suave);font-size:.9rem;margin:0}
+body.historico{background:var(--piso-2)}
 
 .ayuda{font-size:.88rem;color:var(--tinta-suave);line-height:1.55}
 .ayuda p{margin:0 0 8px}
@@ -130,7 +132,11 @@ ol.serie .record{color:var(--ambar)}
 
   <div class="encabezado">
     <h1>Invertidas</h1>
-    <div class="estado" id="estado">Sin calibrar</div>
+    <div class="estado" id="selectorFecha">
+      <button id="btnDiaAnt" style="padding:6px 8px;font-size:0.9rem">←</button>
+      <span id="fechaMuestra" style="display:inline-block;min-width:80px;text-align:center;font-size:0.85rem">hoy</span>
+      <button id="btnDiaSig" style="padding:6px 8px;font-size:0.9rem">→</button>
+    </div>
   </div>
 
   <div id="aviso" class="aviso oculto"></div>
@@ -191,10 +197,10 @@ ol.serie .record{color:var(--ambar)}
   var SALIR  = -0.05;      // histéresis de salida (holgado para tolerar sacudidas de cadera al abrir piernas)
   var CONFIRMA_ENTRADA = 700;  // ms sostenidos para confirmar
   var CONFIRMA_SALIDA  = 600;
-  var MIN_HOLD = 1500;     // ms mínimos para contar un intento
+  var MIN_INTENTO = 1500;  // ms mínimos para registrar como intento
+  var MIN_HOLD = 3000;     // ms mínimos para contar en estadísticas
   var CUENTA_REGRESIVA = 5;    // segundos de margen para acomodar el teléfono antes de calibrar
 
-  var estadoEl=document.getElementById("estado");
   var relojEl=document.getElementById("reloj");
   var subEl=document.getElementById("sub");
   var avisoEl=document.getElementById("aviso");
@@ -205,6 +211,9 @@ ol.serie .record{color:var(--ambar)}
   var serieEl=document.getElementById("serie");
   var vacioEl=document.getElementById("vacio");
   var metaValor=document.getElementById("metaValor");
+  var btnDiaAnt=document.getElementById("btnDiaAnt");
+  var btnDiaSig=document.getElementById("btnDiaSig");
+  var fechaMuestra=document.getElementById("fechaMuestra");
 
   var fase="inicio";        // inicio | calibrar | listo | invertido
   var gFiltrada=null;       // vector gravedad suavizado
@@ -214,13 +223,41 @@ ol.serie .record{color:var(--ambar)}
   var inicioHold=0, metaAvisada=false;
   var holds=[], meta=30, voz=true, manual=false, sensorVivo=false, ultimoDato=0;
   var wakeLock=null, audioCtx=null, cuentaTimer=null;
+  var diaActual=new Date().toISOString().slice(0,10), historial={}, intentos=0;
 
-  /* ---------- almacenamiento ---------- */
-  var CLAVE="invertidas:"+new Date().toISOString().slice(0,10);
+  /* ---------- almacenamiento histórico por días ---------- */
+  function cargarHistorial(){
+    try{
+      var raw=localStorage.getItem("invertidas:historial");
+      if(raw) historial=JSON.parse(raw);
+      else historial={};
+      // Migración: si existen claves viejas YYYY-MM-DD, traspasar a historial
+      for(var i=1;i<=30;i++){
+        var fecha=new Date(Date.now()-i*86400000).toISOString().slice(0,10);
+        var clave="invertidas:"+fecha;
+        var vieja=localStorage.getItem(clave);
+        if(vieja){
+          try{ historial[fecha]=JSON.parse(vieja); localStorage.removeItem(clave); }catch(e){}
+        }
+      }
+    }catch(e){}
+  }
+  function guardarHistorial(){
+    try{ localStorage.setItem("invertidas:historial",JSON.stringify(historial)); }catch(e){}
+  }
+  function cargarDia(fecha){
+    return historial[fecha]||[];
+  }
+  function guardarDia(fecha,data){
+    historial[fecha]=data;
+    guardarHistorial();
+  }
   function cargar(){
     try{
-      var raw=localStorage.getItem(CLAVE);
-      if(raw){ var d=JSON.parse(raw); if(Array.isArray(d)) holds=d; }
+      cargarHistorial();
+      holds=cargarDia(diaActual);
+      intentos=0;
+      for(var i=0;i<holds.length;i++) if(holds[i].esIntento) intentos++;
       var m=localStorage.getItem("invertidas:meta");
       if(m!==null) meta=parseInt(m,10)||30;
       var v=localStorage.getItem("invertidas:voz");
@@ -229,7 +266,7 @@ ol.serie .record{color:var(--ambar)}
   }
   function guardar(){
     try{
-      localStorage.setItem(CLAVE,JSON.stringify(holds));
+      guardarDia(diaActual,holds);
       localStorage.setItem("invertidas:meta",String(meta));
       localStorage.setItem("invertidas:voz",voz?"1":"0");
     }catch(e){}
@@ -330,7 +367,6 @@ ol.serie .record{color:var(--ambar)}
     cancelarCuentaRegresiva();
     fase="previo";
     var restante=CUENTA_REGRESIVA;
-    estadoEl.textContent="Prepárate";
     subEl.textContent="Acomoda el teléfono y quédate quieto";
     btn.textContent="Preparando…";
     relojEl.textContent=String(restante);
@@ -351,7 +387,6 @@ ol.serie .record{color:var(--ambar)}
   function empezarCalibracion(){
     fase="calibrar"; muestrasCal=[]; calHasta=performance.now()+2000;
     refArriba=null;
-    estadoEl.textContent="Calibrando";
     subEl.textContent="Quieto de pie, 2 segundos";
     btn.textContent="Calibrando…";
     tono(520,.12);
@@ -367,7 +402,6 @@ ol.serie .record{color:var(--ambar)}
         var n=muestrasCal.length-Math.floor(muestrasCal.length/2);
         refArriba={x:s.x/n,y:s.y/n,z:s.z/n};
         fase="listo";
-        estadoEl.textContent="Listo";
         subEl.textContent="Súbete cuando quieras";
         btn.textContent="Recalibrar";
         tono(760,.16); vibrar(60);
@@ -395,7 +429,6 @@ ol.serie .record{color:var(--ambar)}
     fase="invertido"; candidatoEntrada=0; candidatoSalida=0;
     inicioHold=t; metaAvisada=false;
     document.body.classList.add("invertido");
-    estadoEl.textContent="Invertido";
     subEl.textContent="Corriendo";
     tono(880,.14); vibrar(80);
   }
@@ -403,19 +436,25 @@ ol.serie .record{color:var(--ambar)}
     var dur=t-inicioHold;
     fase="listo"; candidatoSalida=0; candidatoEntrada=0;
     document.body.classList.remove("invertido");
-    estadoEl.textContent="Listo";
+    var seg=Math.round(dur/100)/10;
     if(dur>=MIN_HOLD){
-      var seg=Math.round(dur/100)/10;
-      holds.push(seg); guardar(); pintarSerie(); pintarDatos();
+      holds.push({seg:seg,esIntento:false}); guardar(); pintarSerie(); pintarDatos();
       relojEl.textContent=seg.toFixed(1);
-      subEl.textContent=(seg>=Math.max.apply(null,holds.concat([0]))?"Récord de la sesión":"Registrado");
+      var mejores=holds.filter(function(h){return !h.esIntento;}).map(function(h){return h.seg;});
+      subEl.textContent=(seg>=Math.max.apply(null,mejores.concat([0]))?"Récord de la sesión":"Registrado");
       tono(520,.1); setTimeout(function(){tono(390,.18);},110);
       vibrar([40,60,40]);
       hablar(seg.toFixed(1).replace(".",",")+" segundos");
+    } else if(dur>=MIN_INTENTO){
+      holds.push({seg:seg,esIntento:true}); intentos++; guardar(); pintarSerie(); pintarDatos();
+      relojEl.textContent=seg.toFixed(1);
+      subEl.textContent="Registrado como intento (menos de 3s)";
+      tono(280,.12);
+      vibrar([40,40]);
     } else {
       relojEl.textContent="0.0";
       subEl.textContent="Muy corto, no cuenta";
-      tono(280,.12);
+      tono(200,.08);
     }
   }
 
@@ -426,10 +465,11 @@ ol.serie .record{color:var(--ambar)}
     return m+":"+(r<10?"0":"")+r;
   }
   function pintarDatos(){
-    var n=holds.length;
-    var mejor=n?Math.max.apply(null,holds):0;
-    var suma=holds.reduce(function(a,b){return a+b;},0);
-    document.getElementById("dIntentos").textContent=n;
+    var validos=holds.filter(function(h){return !h.esIntento;});
+    var n=validos.length;
+    var mejor=n?Math.max.apply(null,validos.map(function(h){return h.seg;})):0;
+    var suma=validos.reduce(function(a,b){return a+b.seg;},0);
+    document.getElementById("dIntentos").textContent=intentos;
     document.getElementById("dMejor").textContent=mejor.toFixed(1);
     document.getElementById("dProm").textContent=n?(suma/n).toFixed(1):"0.0";
     document.getElementById("dTotal").textContent=fmtTotal(suma);
@@ -438,16 +478,41 @@ ol.serie .record{color:var(--ambar)}
     serieEl.innerHTML="";
     if(!holds.length){ vacioEl.classList.remove("oculto"); return; }
     vacioEl.classList.add("oculto");
-    var mejor=Math.max.apply(null,holds);
+    var validos=holds.filter(function(h){return !h.esIntento;});
+    var mejor=validos.length?Math.max.apply(null,validos.map(function(h){return h.seg;})):0;
     for(var i=holds.length-1;i>=0;i--){
       var li=document.createElement("li");
       var n=document.createElement("span"); n.className="n"; n.textContent="#"+(i+1);
-      var t=document.createElement("span"); t.className="t"+(holds[i]===mejor?" record":"");
-      t.textContent=holds[i].toFixed(1)+" s";
+      var esInt=holds[i].esIntento;
+      var t=document.createElement("span");
+      t.className="t"+(esInt?" intento":(holds[i].seg===mejor?" record":""));
+      t.textContent=holds[i].seg.toFixed(1)+" s"+(esInt?" (intento)":"");
       li.appendChild(n); li.appendChild(t); serieEl.appendChild(li);
     }
   }
   function mostrarAviso(txt){ avisoEl.textContent=txt; avisoEl.classList.remove("oculto"); }
+
+  /* ---------- navegación de fechas ---------- */
+  function actualizarMuestraFecha(){
+    var hoy=new Date().toISOString().slice(0,10);
+    var esHoy=diaActual===hoy;
+    var fecha=new Date(diaActual+"T00:00:00Z");
+    var meses=["ene","feb","mar","abr","may","jun","jul","ago","sep","oct","nov","dic"];
+    var muestra=fecha.getUTCDate()+" "+meses[fecha.getUTCMonth()]+(esHoy?" (hoy)":"");
+    fechaMuestra.textContent=muestra;
+    if(esHoy) document.body.classList.remove("historico");
+    else document.body.classList.add("historico");
+  }
+  function avanzarDia(delta){
+    var f=new Date(diaActual+"T00:00:00Z");
+    f.setUTCDate(f.getUTCDate()+delta);
+    diaActual=f.toISOString().slice(0,10);
+    holds=cargarDia(diaActual);
+    intentos=0;
+    for(var i=0;i<holds.length;i++) if(holds[i].esIntento) intentos++;
+    actualizarMuestraFecha();
+    pintarSerie(); pintarDatos();
+  }
 
   /* ---------- bucle de pantalla ---------- */
   function tick(){
@@ -484,7 +549,6 @@ ol.serie .record{color:var(--ambar)}
     btnManual.textContent=manual?"Modo manual activo":"Modo manual";
     if(manual){
       if(fase==="inicio"||fase==="calibrar"||fase==="previo"){ cancelarCuentaRegresiva(); fase="listo"; }
-      estadoEl.textContent="Manual";
       subEl.textContent="Toca el botón grande para partir y parar";
       btn.textContent="Partir / parar";
     } else {
@@ -494,8 +558,13 @@ ol.serie .record{color:var(--ambar)}
   });
   btnReset.addEventListener("click",function(){
     if(!holds.length) return;
-    if(confirm("¿Borrar los "+holds.length+" holds de hoy?")){
-      holds=[]; guardar(); pintarSerie(); pintarDatos();
+    var txt="¿Borrar ";
+    var validos=holds.filter(function(h){return !h.esIntento;}).length;
+    if(validos>0) txt+=validos+" hold"+(validos>1?"s":"");
+    if(intentos>0) txt+=(validos>0?" y ":"")+ intentos+" intento"+(intentos>1?"s":"");
+    txt+=" de hoy?";
+    if(confirm(txt)){
+      holds=[]; intentos=0; guardar(); pintarSerie(); pintarDatos();
       relojEl.textContent="0.0"; subEl.textContent="Sesión en blanco";
     }
   });
@@ -505,8 +574,11 @@ ol.serie .record{color:var(--ambar)}
   document.getElementById("metaMas").addEventListener("click",function(){
     meta=Math.min(300,meta+5); metaValor.textContent=meta+" s"; guardar();
   });
+  btnDiaAnt.addEventListener("click",function(){ avanzarDia(-1); });
+  btnDiaSig.addEventListener("click",function(){ avanzarDia(1); });
 
   cargar();
+  actualizarMuestraFecha();
   metaValor.textContent=meta?meta+" s":"sin meta";
   btnVoz.textContent=voz?"Voz activada":"Voz apagada";
   btnVoz.setAttribute("aria-pressed",voz?"true":"false");
