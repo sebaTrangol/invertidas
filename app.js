@@ -162,6 +162,7 @@
   }
   function sincronizarTodo(){
     if(!sesion||!navigator.onLine){ actualizarEstadoSync(); return; }
+    estadoSync.textContent="Sincronizando…";
     var subidas=[];
     Object.keys(historial).forEach(function(fecha){
       historial[fecha].forEach(function(h){
@@ -172,12 +173,17 @@
     Promise.all(subidas).then(function(errores){
       guardarHistorial();
       var fallos=errores.filter(Boolean);
-      if(fallos.length) mostrarAviso("No se pudieron subir "+fallos.length+" hold"+(fallos.length>1?"s":"")+": "+(fallos[0].message||fallos[0]));
-      return traerRemoto();
-    }).then(function(){
+      return traerRemoto().then(function(){ return fallos; });
+    }).then(function(fallos){
       holds=cargarDia(diaActual);
-      actualizarEstadoSync();
       pintarSerie(); pintarDatos();
+      if(fallos.length){
+        estadoSync.textContent="Error: "+(fallos[0].message||String(fallos[0]));
+      } else {
+        actualizarEstadoSync();
+      }
+    }).catch(function(e){
+      estadoSync.textContent="Error: "+(e&&e.message||String(e));
     });
   }
 
