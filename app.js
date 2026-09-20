@@ -10,7 +10,6 @@
   var SALIR  = -0.05;      // histéresis de salida (holgado para tolerar sacudidas de cadera al abrir piernas)
   var CONFIRMA_ENTRADA = 700;  // ms sostenidos para confirmar
   var CONFIRMA_SALIDA  = 600;
-  var MIN_INTENTO = 1500;  // ms mínimos para registrar como intento
   var MIN_HOLD = 3000;     // ms mínimos para contar en estadísticas
   var CUENTA_REGRESIVA = 5;    // segundos de margen para acomodar el teléfono antes de calibrar
 
@@ -43,7 +42,7 @@
   var inicioHold=0, metaAvisada=false;
   var holds=[], meta=30, voz=true, manual=false, sensorVivo=false, ultimoDato=0;
   var wakeLock=null, audioCtx=null, cuentaTimer=null;
-  var diaActual=fechaISO(), historial={}, intentos=0;
+  var diaActual=fechaISO(), historial={};
 
   /* ---------- fecha local (evita el corte de día en UTC) ---------- */
   function fechaISO(d){
@@ -88,8 +87,6 @@
     try{
       cargarHistorial();
       holds=cargarDia(diaActual);
-      intentos=0;
-      for(var i=0;i<holds.length;i++) if(holds[i].esIntento) intentos++;
       var m=localStorage.getItem("invertidas:meta");
       if(m!==null) meta=parseInt(m,10)||30;
       var v=localStorage.getItem("invertidas:voz");
@@ -369,28 +366,21 @@
     fase="listo"; candidatoSalida=0; candidatoEntrada=0;
     document.body.classList.remove("invertido");
     var seg=Math.round(dur/100)/10;
-    if(dur>=MIN_HOLD){
-      var holdN={id:generarId(),seg:seg,esIntento:false,sincronizado:false};
-      holds.push(holdN); guardar(); pintarSerie(); pintarDatos();
-      subirYActualizar(holdN);
-      relojEl.textContent=seg.toFixed(1);
+    var esValido=dur>=MIN_HOLD;
+    var hold={id:generarId(),seg:seg,esIntento:!esValido,sincronizado:false};
+    holds.push(hold); guardar(); pintarSerie(); pintarDatos();
+    subirYActualizar(hold);
+    relojEl.textContent=seg.toFixed(1);
+    if(esValido){
       var mejores=holds.filter(function(h){return !h.esIntento;}).map(function(h){return h.seg;});
       subEl.textContent=(seg>=Math.max.apply(null,mejores.concat([0]))?"Récord de la sesión":"Registrado");
       tono(520,.1); setTimeout(function(){tono(390,.18);},110);
       vibrar([40,60,40]);
       hablar(seg.toFixed(1).replace(".",",")+" segundos");
-    } else if(dur>=MIN_INTENTO){
-      var holdI={id:generarId(),seg:seg,esIntento:true,sincronizado:false};
-      holds.push(holdI); intentos++; guardar(); pintarSerie(); pintarDatos();
-      subirYActualizar(holdI);
-      relojEl.textContent=seg.toFixed(1);
+    } else {
       subEl.textContent="Registrado como intento (menos de 3s)";
       tono(280,.12);
       vibrar([40,40]);
-    } else {
-      relojEl.textContent="0.0";
-      subEl.textContent="Muy corto, no cuenta";
-      tono(200,.08);
     }
   }
 
@@ -405,7 +395,7 @@
     var n=validos.length;
     var mejor=n?Math.max.apply(null,validos.map(function(h){return h.seg;})):0;
     var suma=validos.reduce(function(a,b){return a+b.seg;},0);
-    document.getElementById("dIntentos").textContent=intentos;
+    document.getElementById("dIntentos").textContent=holds.length;
     document.getElementById("dMejor").textContent=mejor.toFixed(1);
     document.getElementById("dProm").textContent=n?(suma/n).toFixed(1):"0.0";
     document.getElementById("dTotal").textContent=fmtTotal(suma);
@@ -448,8 +438,6 @@
     if(fecha>hoy) fecha=hoy;
     diaActual=fecha;
     holds=cargarDia(diaActual);
-    intentos=0;
-    for(var i=0;i<holds.length;i++) if(holds[i].esIntento) intentos++;
     actualizarMuestraFecha();
     pintarSerie(); pintarDatos();
   }
@@ -505,11 +493,12 @@
     if(!holds.length) return;
     var txt="¿Borrar ";
     var validos=holds.filter(function(h){return !h.esIntento;}).length;
+    var intentos=holds.length-validos;
     if(validos>0) txt+=validos+" hold"+(validos>1?"s":"");
     if(intentos>0) txt+=(validos>0?" y ":"")+ intentos+" intento"+(intentos>1?"s":"");
     txt+=" de hoy?";
     if(confirm(txt)){
-      holds=[]; intentos=0; guardar(); pintarSerie(); pintarDatos();
+      holds=[]; guardar(); pintarSerie(); pintarDatos();
       relojEl.textContent="0.0"; subEl.textContent="Sesión en blanco";
       if(sesion&&navigator.onLine){
         supa.from("holds").delete().eq("user_id",sesion.user.id).eq("fecha",diaActual)
