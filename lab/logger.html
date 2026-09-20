@@ -51,9 +51,30 @@
   var t0=0;
   var muestras=[]; // {t_ms, wall_ms, ax, ay, az, mag, gx, gy, gz}
   var permisoOk=false;
+  var wakeLock=null;
+
+  function pedirWakeLock(){
+    if(!navigator.wakeLock) return;
+    navigator.wakeLock.request("screen").then(function(w){
+      wakeLock=w;
+      w.addEventListener("release",function(){ wakeLock=null; });
+    }).catch(function(){});
+  }
+  document.addEventListener("visibilitychange",function(){
+    if(document.visibilityState==="visible"&&grabando) pedirWakeLock();
+  });
+
+  var ultimaMuestra=0;
+  setInterval(function(){
+    if(!grabando) return;
+    if(performance.now()-ultimaMuestra>2000){
+      estadoEl.textContent="⚠ El sensor dejó de responder hace "+Math.round((performance.now()-ultimaMuestra)/1000)+"s (¿pantalla bloqueada?)";
+    }
+  },1000);
 
   function onMotion(ev){
     if(!grabando) return;
+    ultimaMuestra=performance.now();
     var a=ev.accelerationIncludingGravity;
     if(!a||a.x===null||typeof a.x!=="number") return;
     var r=ev.rotationRate||{};
@@ -105,12 +126,14 @@
       muestras=[];
       t0=performance.now();
       grabando=true;
+      pedirWakeLock();
       btnGrabar.textContent="Detener grabación";
       btnGrabar.classList.add("grabando");
       btnDescargar.disabled=true;
-      estadoEl.textContent="Grabando… haz el golpe de sincronización ahora.";
+      estadoEl.textContent="Grabando (pantalla bloqueada activa)… haz el golpe de sincronización ahora.";
     } else {
       grabando=false;
+      if(wakeLock){ wakeLock.release().catch(function(){}); wakeLock=null; }
       btnGrabar.textContent="2. Iniciar grabación";
       btnGrabar.classList.remove("grabando");
       estadoEl.textContent=muestras.length+" muestras listas para descargar.";
