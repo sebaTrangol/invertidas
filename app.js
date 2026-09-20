@@ -109,6 +109,18 @@
     if(window.crypto&&crypto.randomUUID) return crypto.randomUUID();
     return Date.now().toString(36)+Math.random().toString(36).slice(2);
   }
+  function conTimeout(promesa,ms,valorTimeout){
+    return new Promise(function(resolve){
+      var listo=false;
+      var t=setTimeout(function(){
+        if(!listo){ listo=true; resolve(valorTimeout); }
+      },ms);
+      promesa.then(function(v){
+        if(!listo){ listo=true; clearTimeout(t); resolve(v); }
+      });
+    });
+  }
+  var sincronizando=false;
   function actualizarUiCuenta(){
     if(sesion){
       cuentaSinSesion.classList.add("oculto");
@@ -134,15 +146,16 @@
     intentarSubir(diaActual,hold).then(function(){ guardar(); actualizarEstadoSync(); });
   }
   function intentarSubir(fecha,hold){
-    return supa.from("holds").insert({
+    var op=supa.from("holds").insert({
       id:hold.id, user_id:sesion.user.id, fecha:fecha, seg:hold.seg, es_intento:hold.esIntento
     }).then(function(res){
       if(!res.error){ hold.sincronizado=true; return null; }
       return res.error;
     }).catch(function(e){ return e; });
+    return conTimeout(op,15000,new Error("tiempo de espera agotado"));
   }
   function traerRemoto(){
-    return supa.from("holds").select("*").eq("user_id",sesion.user.id).then(function(res){
+    var op=supa.from("holds").select("*").eq("user_id",sesion.user.id).then(function(res){
       if(res.error||!res.data) return;
       var porFecha={};
       res.data.forEach(function(row){
@@ -159,9 +172,12 @@
       });
       guardarHistorial();
     }).catch(function(){});
+    return conTimeout(op,15000,null);
   }
   function sincronizarTodo(){
     if(!sesion||!navigator.onLine){ actualizarEstadoSync(); return; }
+    if(sincronizando) return;
+    sincronizando=true;
     estadoSync.textContent="Sincronizando…";
     var subidas=[];
     Object.keys(historial).forEach(function(fecha){
@@ -184,7 +200,7 @@
       }
     }).catch(function(e){
       estadoSync.textContent="Error: "+(e&&e.message||String(e));
-    });
+    }).finally(function(){ sincronizando=false; });
   }
 
   /* ---------- sonido y voz ---------- */
